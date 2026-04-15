@@ -1,0 +1,23 @@
+[package]
+name = "emlex"
+version = "0.1.0"
+edition = "2021"
+authors = ["Rhetro <rhetro@rhetroxc.com>"]
+description = "A zero-cost S-expression mathematical DSL engine for Rust. Provides compile-time evaluation, AST preservation, optimization, and reverse DSL reconstruction."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/rhetro/emlex"
+readme = "README.md"
+keywords = ["dsl", "macro", "s-expression", "math", "ast"]
+categories = ["development-tools", "compilers", "mathematics"]
+
+[dependencies]
+num-complex = "0.4"
+
+[dev-dependencies]
+trybuild = "1.0"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
