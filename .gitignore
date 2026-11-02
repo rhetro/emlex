@@ -1,4 +1,3 @@
 target/
-wip/
 **/*.rs.bk
 Cargo.lock

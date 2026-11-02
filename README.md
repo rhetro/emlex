@@ -12,6 +12,8 @@ The library evaluates S-expressions into native Rust operations at compile-time 
 
 The macros generate purely native Rust code. To handle AST preservation (`EExpr` / `CExpr`) without runtime allocation overhead, the library utilizes lazy evaluation via static function pointers (`LazyEExpr` / `LazyCExpr`). If the AST is not explicitly consumed at runtime, LLVM's Dead Code Elimination (DCE) removes the allocation instructions, resulting in zero-overhead execution matching handwritten native operations.
 
+AST optimization operates via in-place mutation (`.optimize_in_place()`) to avoid unnecessary reallocations. Reverse DSL reconstruction implements `std::fmt::Display`.
+
 ### Recursion Limit
 
 `emlex` performs full S-expression parsing using `macro_rules!`, which relies on
@@ -32,16 +34,37 @@ add the following attribute to your crate root (`lib.rs` or `main.rs`):
 
 Most projects will not require this, but complex or deeply nested DSL inputs may.
 
+### Benchmarks
+
+Measured on standard release configuration (`cargo bench` via Criterion):
+
+* **Numeric Evaluation (`eval_native_vs_macro`):** `~512 ps` (Pure zero-cost execution)
+* **AST In-place Optimization (`ast_optimize_in_place`):** `~382 ns` (~2,600,000 ops/sec)
+* **Reverse DSL Stringification (`ast_to_eml_display`):** `~940 ns` (Direct formatting)
+
 
 ## Features
 
 * **Dual Evaluation Engines:**
 * `eml!`: Evaluates `(eml x y)` as `exp(x) - ln(y)`.
 * `ceml!`: Evaluates standard operations backed by `num_complex::Complex<f64>`.
-* **Reverse DSL (AST Reconstruction):** Parses inputs into ASTs that can be reconstructed back into their original S-expression strings using `.to_eml()` and `.to_ceml()`.
-* **AST Optimization:** Automatically reduces redundant mathematical structures (e.g., simplifying `exp(ln(x))` to `x`) through structural pattern matching.
+* **Reverse DSL (AST Reconstruction):** Parses inputs into ASTs that can be reconstructed back into their original S-expression strings using `.to_eml()` / `.to_ceml()` or direct `Display` formatting.
+* **AST Optimization:** Reduces redundant mathematical structures (e.g., simplifying `exp(ln(x))` to `x`) through structural pattern matching and zero-copy in-place mutation (`.optimize_in_place()`).
 
 ## Usage
+
+Add the dependency to your project:
+
+```bash
+cargo add emlex
+```
+
+Or add it directly to `Cargo.toml`:
+
+```toml
+[dependencies]
+emlex = "0.2.0"
+```
 
 ### Real Number DSL (`eml!`)
 

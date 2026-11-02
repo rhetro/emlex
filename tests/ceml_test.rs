@@ -106,9 +106,9 @@ mod tests {
         assert_eq!(val_add, Complex::new(1.0, 0.0) + z1);
 
         // Var on the left, Literal on the right
-        let (ast_mul, val_mul) = ceml!((mul z1 3.14));
-        assert_eq!(ast_mul.to_ceml(), "(mul z1 3.14)");
-        assert_eq!(val_mul, z1 * Complex::new(3.14, 0.0));
+        let (ast_mul, val_mul) = ceml!((mul z1 3.5));
+        assert_eq!(ast_mul.to_ceml(), "(mul z1 3.5)");
+        assert_eq!(val_mul, z1 * Complex::new(3.5, 0.0));
 
         // Complex literal on the left, Var on the right
         let (ast_div, val_div) = ceml!((div (complex 1.0 2.0) z1));

@@ -1,3 +1,83 @@
+use std::fmt;
+
+// ============================================================================
+// PATTERN DIAGNOSTIC PRISMS (Xopsy CPS + Opejson In-Place Surgery)
+// ============================================================================
+
+/// Continuation-Passing Style (CPS) macro for S-expressions based on Xopsy's focus! architecture.
+/// Recursively matches and extracts mutable references to deep target nodes without manual if-let nesting.
+#[macro_export]
+#[doc(hidden)]
+macro_rules! __focus_eml_pat {
+    ($node:expr, 1.0, $ok:tt, $fail:tt) => {
+        if $node.is_one() {
+            $ok
+        } else {
+            $fail
+        }
+    };
+
+    ($node:expr, (? $var:ident), $ok:tt, $fail:tt) => {{
+        let $var = $node;
+        $ok
+    }};
+
+    ($node:expr, (eml $left:tt $right:tt), $ok:tt, $fail:tt) => {
+        match $node {
+            $crate::EExpr::Eml(ref mut __l, ref mut __r) => {
+                $crate::__focus_eml_pat!(
+                    __l.as_mut(),
+                    $left,
+                    { $crate::__focus_eml_pat!(__r.as_mut(), $right, $ok, $fail) },
+                    $fail
+                )
+            }
+            _ => $fail,
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! focus_eml {
+    ($target:expr, $pat:tt => $ok:expr, _ => $fail:expr) => {
+        $crate::__focus_eml_pat!($target, $pat, { $ok }, { $fail })
+    };
+}
+
+#[macro_export]
+#[doc(hidden)]
+macro_rules! __focus_ceml_pat {
+    ($node:expr, (? $var:ident), $ok:tt, $fail:tt) => {{
+        let $var = $node;
+        $ok
+    }};
+
+    ($node:expr, (exp $inner:tt), $ok:tt, $fail:tt) => {
+        match $node {
+            $crate::CExpr::Exp(ref mut __inner) => {
+                $crate::__focus_ceml_pat!(__inner.as_mut(), $inner, $ok, $fail)
+            }
+            _ => $fail,
+        }
+    };
+
+    ($node:expr, (ln $inner:tt), $ok:tt, $fail:tt) => {
+        match $node {
+            $crate::CExpr::Ln(ref mut __inner) => {
+                $crate::__focus_ceml_pat!(__inner.as_mut(), $inner, $ok, $fail)
+            }
+            _ => $fail,
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! focus_ceml {
+    ($target:expr, $pat:tt => $ok:expr, _ => $fail:expr) => {
+        $crate::__focus_ceml_pat!($target, $pat, { $ok }, { $fail })
+    };
+}
+
 // ============================================================================
 // COMPLEX NUMBER DSL (`ceml!`)
 // ============================================================================
@@ -16,51 +96,76 @@ pub enum CExpr {
     Div(Box<CExpr>, Box<CExpr>),
 }
 
-impl CExpr {
-    pub fn to_ceml(&self) -> String {
+impl fmt::Display for CExpr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            CExpr::Var(v) => v.to_string(),
-            CExpr::Lit(n) => n.to_string(),
-            CExpr::ComplexLit(a, b) => format!("(complex {} {})", a, b),
-            CExpr::I => "(i)".to_string(),
-            CExpr::Exp(x) => format!("(exp {})", x.to_ceml()),
-            CExpr::Ln(x) => format!("(ln {})", x.to_ceml()),
-            CExpr::Add(a, b) => format!("(add {} {})", a.to_ceml(), b.to_ceml()),
-            CExpr::Sub(a, b) => format!("(sub {} {})", a.to_ceml(), b.to_ceml()),
-            CExpr::Mul(a, b) => format!("(mul {} {})", a.to_ceml(), b.to_ceml()),
-            CExpr::Div(a, b) => format!("(div {} {})", a.to_ceml(), b.to_ceml()),
-        }
-    }
-
-    pub fn optimize(&self) -> CExpr {
-        match self {
-            CExpr::Exp(inner) => {
-                let opt = inner.optimize();
-                if let CExpr::Ln(x) = opt {
-                    *x
-                } else {
-                    CExpr::Exp(Box::new(opt))
-                }
-            }
-            CExpr::Ln(inner) => {
-                let opt = inner.optimize();
-                if let CExpr::Exp(x) = opt {
-                    *x
-                } else {
-                    CExpr::Ln(Box::new(opt))
-                }
-            }
-            CExpr::Add(a, b) => CExpr::Add(Box::new(a.optimize()), Box::new(b.optimize())),
-            CExpr::Sub(a, b) => CExpr::Sub(Box::new(a.optimize()), Box::new(b.optimize())),
-            CExpr::Mul(a, b) => CExpr::Mul(Box::new(a.optimize()), Box::new(b.optimize())),
-            CExpr::Div(a, b) => CExpr::Div(Box::new(a.optimize()), Box::new(b.optimize())),
-            _ => self.clone(),
+            CExpr::Var(v) => write!(f, "{v}"),
+            CExpr::Lit(n) => write!(f, "{n}"),
+            CExpr::ComplexLit(a, b) => write!(f, "(complex {a} {b})"),
+            CExpr::I => write!(f, "(i)"),
+            CExpr::Exp(x) => write!(f, "(exp {x})"),
+            CExpr::Ln(x) => write!(f, "(ln {x})"),
+            CExpr::Add(a, b) => write!(f, "(add {a} {b})"),
+            CExpr::Sub(a, b) => write!(f, "(sub {a} {b})"),
+            CExpr::Mul(a, b) => write!(f, "(mul {a} {b})"),
+            CExpr::Div(a, b) => write!(f, "(div {a} {b})"),
         }
     }
 }
 
+impl CExpr {
+    #[inline]
+    pub fn to_ceml(&self) -> String {
+        self.to_string()
+    }
+
+    /// In-place AST mutation eliminating heap reallocations and cloning.
+    pub fn optimize_in_place(&mut self) {
+        match self {
+            CExpr::Exp(inner) => {
+                inner.optimize_in_place();
+            }
+            CExpr::Ln(inner) => {
+                inner.optimize_in_place();
+            }
+            CExpr::Add(a, b) | CExpr::Sub(a, b) | CExpr::Mul(a, b) | CExpr::Div(a, b) => {
+                a.optimize_in_place();
+                b.optimize_in_place();
+                return;
+            }
+            _ => return,
+        }
+
+        let mut extracted = None;
+        focus_ceml!(
+            self,
+            (exp (ln (? target))) => {
+                extracted = Some(std::mem::replace(target, CExpr::I));
+            },
+            _ => {
+                focus_ceml!(
+                    self,
+                    (ln (exp (? target))) => {
+                        extracted = Some(std::mem::replace(target, CExpr::I));
+                    },
+                    _ => ()
+                );
+            }
+        );
+
+        if let Some(node) = extracted {
+            *self = node;
+        }
+    }
+
+    pub fn optimize(&self) -> CExpr {
+        let mut cloned = self.clone();
+        cloned.optimize_in_place();
+        cloned
+    }
+}
+
 // Lazy wrapper to achieve absolute zero-cost execution at runtime.
-// The heap allocation is entirely deferred until explicit evaluation.
 pub struct LazyCExpr(pub fn() -> CExpr);
 
 impl LazyCExpr {
@@ -69,6 +174,12 @@ impl LazyCExpr {
     }
     pub fn optimize(&self) -> CExpr {
         (self.0)().optimize()
+    }
+}
+
+impl fmt::Display for LazyCExpr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", (self.0)())
     }
 }
 
@@ -93,13 +204,12 @@ impl PartialEq<LazyCExpr> for CExpr {
 #[doc(hidden)]
 #[macro_export]
 macro_rules! __ceml_call {
-    // Generate a pure, non-capturing function pointer to defer AST creation.
-    ([finalize], [$ast:expr, $val:expr]) => {
-        {
-            fn __generate_ast() -> $crate::CExpr { $ast }
-            ($crate::LazyCExpr(__generate_ast), $val)
+    ([finalize], [$ast:expr, $val:expr]) => {{
+        fn __generate_ast() -> $crate::CExpr {
+            $ast
         }
-    };
+        ($crate::LazyCExpr(__generate_ast), $val)
+    }};
     ([cb_exp $($cb:tt)*], [$ast:expr, $val:expr]) => {
         $crate::__ceml_call!([$($cb)*], [ ($crate::CExpr::Exp(Box::new($ast))), ($val.exp()) ])
     };
@@ -164,8 +274,19 @@ pub enum EExpr {
     Eml(Box<EExpr>, Box<EExpr>),
 }
 
+impl fmt::Display for EExpr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            EExpr::Var(v) => write!(f, "{v}"),
+            EExpr::Lit(n) => write!(f, "{n}"),
+            EExpr::Eml(x, y) => write!(f, "(eml {x} {y})"),
+        }
+    }
+}
+
 impl EExpr {
-    fn is_one(&self) -> bool {
+    #[inline]
+    pub fn is_one(&self) -> bool {
         if let EExpr::Lit(n) = self {
             (*n - 1.0).abs() < f64::EPSILON
         } else {
@@ -173,56 +294,46 @@ impl EExpr {
         }
     }
 
+    #[inline]
     pub fn to_eml(&self) -> String {
-        match self {
-            EExpr::Var(v) => v.to_string(),
-            EExpr::Lit(n) => n.to_string(),
-            EExpr::Eml(x, y) => format!("(eml {} {})", x.to_eml(), y.to_eml()),
+        self.to_string()
+    }
+
+    /// In-place AST mutation eliminating heap reallocations and cloning.
+    pub fn optimize_in_place(&mut self) {
+        if let EExpr::Eml(ref mut x, ref mut y) = self {
+            x.optimize_in_place();
+            y.optimize_in_place();
+        } else {
+            return;
+        }
+
+        let mut extracted = None;
+        focus_eml!(
+            self,
+            (eml (eml 1.0 (eml (eml 1.0 (? target)) 1.0)) 1.0) => {
+                extracted = Some(std::mem::replace(target, EExpr::Lit(0.0)));
+            },
+            _ => {
+                focus_eml!(
+                    self,
+                    (eml 1.0 (eml (eml 1.0 (eml (? target) 1.0)) 1.0)) => {
+                        extracted = Some(std::mem::replace(target, EExpr::Lit(0.0)));
+                    },
+                    _ => ()
+                );
+            }
+        );
+
+        if let Some(node) = extracted {
+            *self = node;
         }
     }
 
     pub fn optimize(&self) -> EExpr {
-        match self {
-            EExpr::Eml(x, y) => {
-                let opt_x = x.optimize();
-                let opt_y = y.optimize();
-
-                if opt_y.is_one() {
-                    if let EExpr::Eml(l1, r1) = &opt_x {
-                        if l1.is_one() {
-                            if let EExpr::Eml(l2, r2) = r1.as_ref() {
-                                if r2.is_one() {
-                                    if let EExpr::Eml(l3, r3) = l2.as_ref() {
-                                        if l3.is_one() {
-                                            return *r3.clone();
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                if opt_x.is_one() {
-                    if let EExpr::Eml(l1, r1) = &opt_y {
-                        if r1.is_one() {
-                            if let EExpr::Eml(l2, r2) = l1.as_ref() {
-                                if l2.is_one() {
-                                    if let EExpr::Eml(z_node, z_one) = r2.as_ref() {
-                                        if z_one.is_one() {
-                                            return *z_node.clone();
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                EExpr::Eml(Box::new(opt_x), Box::new(opt_y))
-            }
-            _ => self.clone(),
-        }
+        let mut cloned = self.clone();
+        cloned.optimize_in_place();
+        cloned
     }
 }
 
@@ -235,6 +346,12 @@ impl LazyEExpr {
     }
     pub fn optimize(&self) -> EExpr {
         (self.0)().optimize()
+    }
+}
+
+impl fmt::Display for LazyEExpr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", (self.0)())
     }
 }
 
@@ -259,13 +376,12 @@ impl PartialEq<LazyEExpr> for EExpr {
 #[doc(hidden)]
 #[macro_export]
 macro_rules! __eml_call {
-    // Generate a pure, non-capturing function pointer to defer AST creation.
-    ([finalize], [$ast:expr, $val:expr]) => {
-        {
-            fn __generate_ast() -> $crate::EExpr { $ast }
-            ($crate::LazyEExpr(__generate_ast), $val)
+    ([finalize], [$ast:expr, $val:expr]) => {{
+        fn __generate_ast() -> $crate::EExpr {
+            $ast
         }
-    };
+        ($crate::LazyEExpr(__generate_ast), $val)
+    }};
 
     ([cb_eml_x $y:tt $($cb:tt)*], [$ast_x:expr, $val_x:expr]) => {
         $crate::__eml_walk!([$y], [cb_eml_y $ast_x, $val_x, $($cb)*])
@@ -282,7 +398,9 @@ macro_rules! __eml_call {
 #[doc(hidden)]
 #[macro_export]
 macro_rules! __eml_walk {
-    ([(eml $x:tt $y:tt)], [$($cb:tt)*]) => { $crate::__eml_walk!([$x], [cb_eml_x $y $($cb)*]) };
+    ([(eml $x:tt $y:tt)], [$($cb:tt)*]) => {
+        $crate::__eml_walk!([$x], [cb_eml_x $y $($cb)*])
+    };
 
     ([$v:ident], [$($cb:tt)*]) => {
         $crate::__eml_call!([$($cb)*], [ ($crate::EExpr::Var(stringify!($v))), ($v) ])
